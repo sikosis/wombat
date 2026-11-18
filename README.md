@@ -37,7 +37,7 @@ build/wombat source.cpp
 # Tidy one or more files in place
 build/wombat --write source.cpp page.html README.md script.sh
 
-# Report files that need tidying (exit status 1 when changes are needed)
+# Report whether files are clean (exit status 1 when changes are needed)
 build/wombat --check source.cpp
 
 # Tidy standard input
@@ -46,16 +46,32 @@ cat source.cpp | build/wombat --stdin cpp
 
 Wombat chooses a formatter from the filename extension. Supported file types
 are C and C++, HTML, Markdown, and shell scripts. Unknown extensions still get
-safe whitespace cleanup.
+safe whitespace cleanup. Extensionless files with a Bash or POSIX shell
+shebang are recognised as shell scripts.
+
+### Bash formatting
+
+Wombat currently gives Bash and POSIX shell scripts the most complete
+formatting pass. It tidies indentation for `if`, `else`, `for`, `while`, and
+function blocks; spaces test expressions, pipelines, command separators, and
+logical operators; and leaves quoted strings and comments intact.
 
 ## Formatting rules
 
 - Unix line endings and exactly one final newline.
 - No trailing spaces or tabs.
 - Leading groups of four spaces become tabs in code files.
-- C and C++ control statements use a space before `(`.
-- Markdown list markers and headings use consistent spacing.
-- Shell keywords such as `if`, `for`, and `while` use consistent spacing.
+- C and C++ control statements, operators, commas, semicolons, and opening
+  braces use consistent spacing outside strings and comments.
+- HTML attributes have consistent spacing around `=`.
+- Markdown list markers, block quotes, numbered lists, and headings use
+  consistent spacing.
+- Shell keywords, pipelines, command lists, and logical operators use
+  consistent spacing outside quotes and comments.
+
+Write mode reports `formatted:` or `unchanged:` for every file. Check mode
+reports `needs formatting:` or `clean:` so a successful command never looks
+like it silently did nothing.
 
 Wombat deliberately avoids parsing or rearranging code. This keeps it useful
 for quick cleanup while reducing the chance of changing program behaviour.

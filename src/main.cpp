@@ -12,8 +12,8 @@ void PrintUsage() {
 	std::cout << "Usage: wombat [--write | --check] FILE...\n"
 		<< "       wombat --stdin TYPE\n\n"
 		<< "Options:\n"
-		<< "  -w, --write   Tidy files in place\n"
-		<< "  -c, --check   Report files that need tidying\n"
+		<< "  -w, --write   Tidy files in place and report each result\n"
+		<< "  -c, --check   Report whether each file is clean\n"
 		<< "  --stdin TYPE   Tidy standard input as cpp, html, markdown, shell, or plain\n"
 		<< "  -h, --help    Show this help\n";
 }
@@ -37,6 +37,21 @@ bool WriteFile(const std::string& path, const std::string& contents) {
 		return false;
 	}
 	return true;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+FileType FileTypeForContents(const std::string& path, const std::string& contents) {
+	FileType fileType = DetectFileType(path);
+	if (fileType != FileType::Plain || contents.compare(0, 2, "#!") != 0) {
+		return fileType;
+	}
+	std::size_t firstLineEnd = contents.find('\n');
+	std::string shebang = contents.substr(0, firstLineEnd);
+	if (shebang.find("/bash") != std::string::npos || shebang.find("/sh") != std::string::npos
+		|| shebang.find(" sh") != std::string::npos || shebang.find(" bash") != std::string::npos) {
+		return FileType::Shell;
+	}
+	return fileType;
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
@@ -90,15 +105,26 @@ int main(int argc, char** argv) {
 			failed = true;
 			continue;
 		}
-		std::string output = TidyText(input, DetectFileType(path));
+		std::string output = TidyText(input, FileTypeForContents(path, input));
 		if (output == input) {
+			if (writeFiles) {
+				std::cout << "unchanged: " << path << '\n';
+			} else if (checkFiles) {
+				std::cout << "clean: " << path << '\n';
+			} else {
+				std::cout << output;
+			}
 			continue;
 		}
 		changed = true;
 		if (writeFiles) {
-			failed = !WriteFile(path, output) || failed;
+			if (WriteFile(path, output)) {
+				std::cout << "formatted: " << path << '\n';
+			} else {
+				failed = true;
+			}
 		} else if (checkFiles) {
-			std::cout << path << '\n';
+			std::cout << "needs formatting: " << path << '\n';
 		} else {
 			std::cout << output;
 		}

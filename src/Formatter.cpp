@@ -33,6 +33,38 @@ std::string ConvertLeadingSpacesToTabs(const std::string& line) {
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
+void RemoveOutputSpaces(std::string& output) {
+	while (!output.empty() && output.back() == ' ') {
+		output.pop_back();
+	}
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+void AddOutputSpace(std::string& output) {
+	if (!output.empty() && output.back() != ' ' && output.back() != '\t') {
+		output.push_back(' ');
+	}
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool IsCppOperator(const std::string& line, std::size_t index, std::size_t& length) {
+	static const std::vector<std::string> doubleOperators = {
+		"==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", "&&", "||", "<<", ">>"
+	};
+	for (const std::string& operatorText : doubleOperators) {
+		if (line.compare(index, operatorText.size(), operatorText) == 0) {
+			length = operatorText.size();
+			return true;
+		}
+	}
+	if (line[index] == '=') {
+		length = 1;
+		return true;
+	}
+	return false;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
 std::string TidyCppLine(std::string line) {
 	static const std::vector<std::string> keywords = {"if", "for", "while", "switch", "catch"};
 	std::size_t indentationEnd = line.find_first_not_of("\t ");
@@ -46,7 +78,63 @@ std::string TidyCppLine(std::string line) {
 			line.insert(indentationEnd + keyword.size(), " ");
 		}
 	}
-	return line;
+
+	std::string output = line.substr(0, indentationEnd);
+	bool singleQuoted = false;
+	bool doubleQuoted = false;
+	bool escaped = false;
+	for (std::size_t index = indentationEnd; index < line.size(); ++index) {
+		char character = line[index];
+		if (!singleQuoted && !doubleQuoted && character == '/' && index + 1 < line.size() && line[index + 1] == '/') {
+			AddOutputSpace(output);
+			output += line.substr(index);
+			break;
+		}
+		if (!escaped && character == '\'' && !doubleQuoted) {
+			singleQuoted = !singleQuoted;
+		} else if (!escaped && character == '"' && !singleQuoted) {
+			doubleQuoted = !doubleQuoted;
+		}
+		if (singleQuoted || doubleQuoted) {
+			output.push_back(character);
+			escaped = !escaped && character == '\\';
+			continue;
+		}
+		escaped = false;
+
+		std::size_t operatorLength = 0;
+		if (IsCppOperator(line, index, operatorLength)) {
+			RemoveOutputSpaces(output);
+			AddOutputSpace(output);
+			output.append(line, index, operatorLength);
+			AddOutputSpace(output);
+			index += operatorLength - 1;
+			while (index + 1 < line.size() && line[index + 1] == ' ') {
+				++index;
+			}
+		} else if (character == ',') {
+			RemoveOutputSpaces(output);
+			output += ", ";
+			while (index + 1 < line.size() && line[index + 1] == ' ') {
+				++index;
+			}
+		} else if (character == ';') {
+			RemoveOutputSpaces(output);
+			output.push_back(';');
+			std::size_t next = line.find_first_not_of(' ', index + 1);
+			if (next != std::string::npos && line[next] != ')' && line[next] != '}') {
+				output.push_back(' ');
+				index = next - 1;
+			}
+		} else if (character == '{') {
+			RemoveOutputSpaces(output);
+			AddOutputSpace(output);
+			output.push_back('{');
+		} else {
+			output.push_back(character);
+		}
+	}
+	return TrimTrailingWhitespace(output);
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
@@ -67,7 +155,42 @@ std::string TidyMarkdownLine(std::string line) {
 		&& line[content + 1] != ' ') {
 		line.insert(content + 1, " ");
 	}
+	if (line[content] == '>' && content + 1 < line.size() && line[content + 1] != ' ') {
+		line.insert(content + 1, " ");
+	}
+	std::size_t numberEnd = content;
+	while (numberEnd < line.size() && std::isdigit(static_cast<unsigned char>(line[numberEnd]))) {
+		++numberEnd;
+	}
+	if (numberEnd > content && numberEnd + 1 < line.size() && line[numberEnd] == '.' && line[numberEnd + 1] != ' ') {
+		line.insert(numberEnd + 1, " ");
+	}
 	return line;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::string TidyHtmlLine(const std::string& line) {
+	std::string output;
+	bool singleQuoted = false;
+	bool doubleQuoted = false;
+	for (std::size_t index = 0; index < line.size(); ++index) {
+		char character = line[index];
+		if (character == '\'' && !doubleQuoted) {
+			singleQuoted = !singleQuoted;
+		} else if (character == '"' && !singleQuoted) {
+			doubleQuoted = !doubleQuoted;
+		}
+		if (character == '=' && !singleQuoted && !doubleQuoted) {
+			RemoveOutputSpaces(output);
+			output.push_back('=');
+			while (index + 1 < line.size() && line[index + 1] == ' ') {
+				++index;
+			}
+		} else {
+			output.push_back(character);
+		}
+	}
+	return output;
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
@@ -84,7 +207,119 @@ std::string TidyShellLine(std::string line) {
 			line.insert(content + keyword.size(), " ");
 		}
 	}
-	return line;
+
+	std::string output = line.substr(0, content);
+	bool singleQuoted = false;
+	bool doubleQuoted = false;
+	bool escaped = false;
+	bool testExpression = false;
+	for (std::size_t index = content; index < line.size(); ++index) {
+		char character = line[index];
+		if (!singleQuoted && !doubleQuoted && character == '#'
+			&& (index == content || std::isspace(static_cast<unsigned char>(line[index - 1])))) {
+			AddOutputSpace(output);
+			output += line.substr(index);
+			break;
+		}
+		if (!escaped && character == '\'' && !doubleQuoted) {
+			singleQuoted = !singleQuoted;
+		} else if (!escaped && character == '"' && !singleQuoted) {
+			doubleQuoted = !doubleQuoted;
+		}
+		if (singleQuoted || doubleQuoted) {
+			output.push_back(character);
+			escaped = !escaped && character == '\\';
+			continue;
+		}
+		escaped = false;
+
+		if (character == '[') {
+			testExpression = true;
+			output.push_back(character);
+			if (index + 1 < line.size() && line[index + 1] == '[') {
+				output.push_back('[');
+				++index;
+			}
+			if (index + 1 < line.size() && line[index + 1] != ' ') {
+				output.push_back(' ');
+			}
+			continue;
+		}
+		if (character == ']' && testExpression) {
+			RemoveOutputSpaces(output);
+			AddOutputSpace(output);
+			if (index + 1 < line.size() && line[index + 1] == ']') {
+				output += "]]";
+				++index;
+			} else {
+				output.push_back(']');
+			}
+			testExpression = false;
+			continue;
+		}
+		if (testExpression && (character == '=' || character == '!' || character == '<' || character == '>')
+			&& (character == '=' || character == '<' || character == '>'
+				|| (index + 1 < line.size() && line[index + 1] == '='))) {
+			RemoveOutputSpaces(output);
+			AddOutputSpace(output);
+			if (index + 1 < line.size() && line[index + 1] == '=') {
+				output.push_back(character);
+				output.push_back('=');
+				++index;
+			} else {
+				output.push_back(character);
+			}
+			output.push_back(' ');
+			while (index + 1 < line.size() && line[index + 1] == ' ') {
+				++index;
+			}
+			continue;
+		}
+
+		std::size_t operatorLength = 0;
+		if ((character == '&' || character == '|') && index + 1 < line.size() && line[index + 1] == character) {
+			operatorLength = 2;
+		} else if (character == '|') {
+			operatorLength = 1;
+		}
+		if (operatorLength > 0) {
+			RemoveOutputSpaces(output);
+			AddOutputSpace(output);
+			output.append(line, index, operatorLength);
+			output.push_back(' ');
+			index += operatorLength - 1;
+			while (index + 1 < line.size() && line[index + 1] == ' ') {
+				++index;
+			}
+		} else if (character == ';' && (index + 1 >= line.size() || line[index + 1] != ';')) {
+			RemoveOutputSpaces(output);
+			output += "; ";
+			while (index + 1 < line.size() && line[index + 1] == ' ') {
+				++index;
+			}
+		} else {
+			output.push_back(character);
+		}
+	}
+	return TrimTrailingWhitespace(output);
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool EndsWith(const std::string& value, const std::string& suffix) {
+	return value.size() >= suffix.size()
+		&& value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool IsShellClosingLine(const std::string& line) {
+	return line == "fi" || line == "done" || line == "esac" || line == "}"
+		|| line == "else" || line.compare(0, 5, "elif ") == 0;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool IsShellOpeningLine(const std::string& line) {
+	return line == "else" || line == "do" || line == "then" || EndsWith(line, "; then")
+		|| EndsWith(line, "; do") || EndsWith(line, " in") || EndsWith(line, " {");
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
@@ -145,6 +380,7 @@ std::string TidyText(const std::string& input, FileType fileType) {
 	std::istringstream stream(normalised);
 	std::string output;
 	std::string line;
+	int shellIndentation = 0;
 	while (std::getline(stream, line)) {
 		line = TrimTrailingWhitespace(line);
 		if (fileType != FileType::Plain && fileType != FileType::Markdown) {
@@ -152,10 +388,25 @@ std::string TidyText(const std::string& input, FileType fileType) {
 		}
 		if (fileType == FileType::Cpp) {
 			line = TidyCppLine(line);
+		} else if (fileType == FileType::Html) {
+			line = TidyHtmlLine(line);
 		} else if (fileType == FileType::Markdown) {
 			line = TidyMarkdownLine(line);
 		} else if (fileType == FileType::Shell) {
 			line = TidyShellLine(line);
+			std::size_t content = line.find_first_not_of("\t ");
+			if (content != std::string::npos && line.compare(content, 2, "#!") != 0) {
+				std::string shellContent = line.substr(content);
+				if (IsShellClosingLine(shellContent) && shellIndentation > 0) {
+					--shellIndentation;
+				}
+				if (shellIndentation > 0 || IsShellClosingLine(shellContent) || IsShellOpeningLine(shellContent)) {
+					line = std::string(static_cast<std::size_t>(shellIndentation), '\t') + shellContent;
+				}
+				if (IsShellOpeningLine(shellContent)) {
+					++shellIndentation;
+				}
+			}
 		}
 		output += line + '\n';
 	}
