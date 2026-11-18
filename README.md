@@ -11,6 +11,23 @@ make
 
 The resulting executable is `build/wombat`.
 
+## Install
+
+Install Wombat into Haiku's non-packaged command directory:
+
+```sh
+make install
+```
+
+The default destination is `/boot/system/non-packaged/bin/wombat`. `PREFIX`,
+`BINDIR`, and `DESTDIR` can be overridden for custom installations or package
+staging:
+
+```sh
+make install PREFIX=/custom/prefix
+make install DESTDIR=/temporary/package-root
+```
+
 ## Usage
 
 ```sh
