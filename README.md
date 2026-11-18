@@ -1,5 +1,9 @@
 # Wombat
 
+<p align="center">
+  <img src="assets/wombat-icon-v2.png" alt="Wombat mascot tidying code" width="320">
+</p>
+
 Wombat is a quick, conservative source-code tidy tool for Haiku. It cleans up
 common whitespace problems without trying to rewrite the structure of a file.
 
