@@ -31,7 +31,7 @@ make install DESTDIR=/temporary/package-root
 ## Usage
 
 ```sh
-# Print a tidied file without changing it
+# Preview a tidied file, then confirm whether to apply the changes
 build/wombat source.cpp
 
 # Tidy one or more files in place
@@ -71,7 +71,10 @@ logical operators; and leaves quoted strings and comments intact.
 
 Write mode reports `formatted:` or `unchanged:` for every file. Check mode
 reports `needs formatting:` or `clean:` so a successful command never looks
-like it silently did nothing.
+like it silently did nothing. With no mode option, Wombat previews the result
+and asks whether to apply it. When Haiku's `hum` is installed and the command
+is running in a terminal, Wombat uses its interactive confirmation selector.
+It falls back to a built-in `y/N` prompt when `hum` is unavailable.
 
 Wombat deliberately avoids parsing or rearranging code. This keeps it useful
 for quick cleanup while reducing the chance of changing program behaviour.

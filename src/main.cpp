@@ -1,12 +1,20 @@
 #include "Formatter.h"
 
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <string>
 #include <vector>
 
+#include <unistd.h>
+
 namespace {
+
+struct PendingChange {
+	std::string path;
+	std::string contents;
+};
 
 void PrintUsage() {
 	std::cout << "Usage: wombat [--write | --check] FILE...\n"
@@ -55,6 +63,23 @@ FileType FileTypeForContents(const std::string& path, const std::string& content
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
+bool ConfirmChanges() {
+	if (isatty(STDIN_FILENO)) {
+		if (std::system("command -v hum >/dev/null 2>&1") == 0) {
+			return std::system("hum confirm 'Apply these formatting changes?'") == 0;
+		}
+	}
+
+	std::cout << "Apply these formatting changes? [y/N] " << std::flush;
+	std::string answer;
+	if (!std::getline(std::cin, answer)) {
+		std::cout << '\n';
+		return false;
+	}
+	return answer == "y" || answer == "Y" || answer == "yes" || answer == "YES" || answer == "Yes";
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -99,6 +124,7 @@ int main(int argc, char** argv) {
 
 	bool failed = false;
 	bool changed = false;
+	std::vector<PendingChange> pendingChanges;
 	for (const std::string& path : paths) {
 		std::string input;
 		if (!ReadFile(path, input)) {
@@ -112,7 +138,7 @@ int main(int argc, char** argv) {
 			} else if (checkFiles) {
 				std::cout << "clean: " << path << '\n';
 			} else {
-				std::cout << output;
+				std::cout << "unchanged: " << path << '\n';
 			}
 			continue;
 		}
@@ -126,7 +152,25 @@ int main(int argc, char** argv) {
 		} else if (checkFiles) {
 			std::cout << "needs formatting: " << path << '\n';
 		} else {
+			if (paths.size() > 1) {
+				std::cout << "--- " << path << " (formatted preview) ---\n";
+			}
 			std::cout << output;
+			pendingChanges.push_back({path, output});
+		}
+	}
+
+	if (!writeFiles && !checkFiles && !pendingChanges.empty()) {
+		if (ConfirmChanges()) {
+			for (const PendingChange& change : pendingChanges) {
+				if (WriteFile(change.path, change.contents)) {
+					std::cout << "formatted: " << change.path << '\n';
+				} else {
+					failed = true;
+				}
+			}
+		} else {
+			std::cout << "No files changed.\n";
 		}
 	}
 

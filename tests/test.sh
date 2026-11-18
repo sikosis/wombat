@@ -44,4 +44,13 @@ if untidy_output=$("$wombat" --check "$temporary_directory/untidy.cpp"); then
 fi
 [ "$untidy_output" = "needs formatting: $temporary_directory/untidy.cpp" ]
 
+printf '#!/bin/bash\nif[ -n "$value" ];then\necho yes\nfi\n' > "$temporary_directory/prompt.sh"
+decline_output=$(printf 'n\n' | "$wombat" "$temporary_directory/prompt.sh")
+[ "$(sed -n '2p' "$temporary_directory/prompt.sh")" = 'if[ -n "$value" ];then' ]
+printf '%s\n' "$decline_output" | grep -q 'No files changed.'
+
+accept_output=$(printf 'y\n' | "$wombat" "$temporary_directory/prompt.sh")
+[ "$(sed -n '2p' "$temporary_directory/prompt.sh")" = 'if [ -n "$value" ]; then' ]
+printf '%s\n' "$accept_output" | grep -q "formatted: $temporary_directory/prompt.sh"
+
 printf 'Wombat tests passed.\n'
