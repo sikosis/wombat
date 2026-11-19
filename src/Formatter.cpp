@@ -130,7 +130,9 @@ std::string TidyCppLine(std::string line) {
 			}
 		} else if (character == '{') {
 			RemoveOutputSpaces(output);
-			AddOutputSpace(output);
+			if (!output.empty() && output.back() != '(' && output.back() != '[' && output.back() != '{') {
+				AddOutputSpace(output);
+			}
 			output.push_back('{');
 		} else {
 			output.push_back(character);

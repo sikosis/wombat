@@ -7,14 +7,18 @@ temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/wombat-test.XXXXXX")
 trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
 
 printf 'if(true) {  \r\n    return 0;\t\r\n}\r\n\r\n' > "$temporary_directory/sample.cpp"
+printf 'void Add() {\n    values.push_back({\x27-\x27, 1});\n}\n' > "$temporary_directory/initializer.cpp"
 printf '#Heading  \n-item\n' > "$temporary_directory/sample.md"
 printf '#!/bin/bash\nif [ "$name" != "Wombat" ];then\nprintf "hello"|sed "s/h/H/"&&echo done\nelse\n        echo "a|b" # keep quoted pipe\nfi\n' > "$temporary_directory/sample.sh"
 printf '#!/bin/sh\nif [ -n "$value" ];then\necho yes\nfi\n' > "$temporary_directory/extensionless"
 
-write_output=$("$wombat" --write "$temporary_directory/sample.cpp" "$temporary_directory/sample.md" "$temporary_directory/sample.sh" "$temporary_directory/extensionless")
+write_output=$("$wombat" --write "$temporary_directory/sample.cpp" "$temporary_directory/initializer.cpp" "$temporary_directory/sample.md" "$temporary_directory/sample.sh" "$temporary_directory/extensionless")
 
 expected_cpp='if (true) {
 	return 0;
+}'
+expected_initializer='void Add() {
+	values.push_back({'\''-'\'', 1});
 }'
 expected_markdown='# Heading
 - item'
@@ -30,12 +34,13 @@ if [ -n "$value" ]; then
 fi'
 
 [ "$(cat "$temporary_directory/sample.cpp")" = "$expected_cpp" ]
+[ "$(cat "$temporary_directory/initializer.cpp")" = "$expected_initializer" ]
 [ "$(cat "$temporary_directory/sample.md")" = "$expected_markdown" ]
 [ "$(cat "$temporary_directory/sample.sh")" = "$expected_shell" ]
 [ "$(cat "$temporary_directory/extensionless")" = "$expected_extensionless" ]
-[ "$(printf '%s\n' "$write_output" | grep -c '^formatted: ')" -eq 4 ]
-check_output=$("$wombat" --check "$temporary_directory/sample.cpp" "$temporary_directory/sample.md" "$temporary_directory/sample.sh" "$temporary_directory/extensionless")
-[ "$(printf '%s\n' "$check_output" | grep -c '^clean: ')" -eq 4 ]
+[ "$(printf '%s\n' "$write_output" | grep -c '^formatted: ')" -eq 5 ]
+check_output=$("$wombat" --check "$temporary_directory/sample.cpp" "$temporary_directory/initializer.cpp" "$temporary_directory/sample.md" "$temporary_directory/sample.sh" "$temporary_directory/extensionless")
+[ "$(printf '%s\n' "$check_output" | grep -c '^clean: ')" -eq 5 ]
 
 printf 'if(false) {}  ' > "$temporary_directory/untidy.cpp"
 if untidy_output=$("$wombat" --check "$temporary_directory/untidy.cpp"); then
