@@ -82,4 +82,3 @@ It falls back to a built-in `y/N` prompt when `hum` is unavailable.
 
 Wombat deliberately avoids parsing or rearranging code. This keeps it useful
 for quick cleanup while reducing the chance of changing program behaviour.
-

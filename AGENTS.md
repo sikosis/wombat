@@ -79,4 +79,3 @@ bool MyWindow::MyFunction() {
 ## Haiku API headers
 
 - Whenever a translation unit uses or instantiates `app_info`, explicitly add  `#include <Roster.h>`. Do not assume `<Application.h>` is sufficient: on Haiku it only provides an incomplete declaration of `app_info`.
-
