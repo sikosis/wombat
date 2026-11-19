@@ -30,7 +30,7 @@ build/obj/%.o: src/%.cpp
 
 build/obj/tree-sitter.o:
 	mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP $(TREE_SITTER_INCLUDES) -c third_party/tree-sitter/lib/src/lib.c -o $@
+	$(CC) $(CFLAGS) -MMD -MP $(TREE_SITTER_INCLUDES) -include src/HaikuEndian.h -c third_party/tree-sitter/lib/src/lib.c -o $@
 
 build/obj/tree-sitter-bash-parser.o:
 	mkdir -p $(dir $@)
