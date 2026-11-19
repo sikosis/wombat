@@ -25,6 +25,9 @@ For an existing checkout, initialise the dependencies before building:
 git submodule update --init --recursive
 ```
 
+`make` also checks for missing dependency content and runs this initialisation
+automatically. A recursive clone remains recommended for offline builds.
+
 ## Install
 
 Install Wombat into Haiku's non-packaged command directory:
