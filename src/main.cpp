@@ -1,7 +1,9 @@
 #include "Formatter.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -9,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include <dirent.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
@@ -135,24 +139,123 @@ void PrintStatus(const std::string& label, const std::string& path, const char* 
 //---------------------------------------------------------------------------------------------------------------------------------//
 
 void PrintUsage() {
-	std::cout << "Usage: wombat [--write | --check] FILE...\n"
+	std::cout << "Usage: wombat [--write | --check] PATH...\n"
 		<< "       wombat --stdin TYPE\n\n"
 		<< "Options:\n"
-		<< "  -w, --write   Tidy files in place and report each result\n"
-		<< "  -c, --check   Report whether each file is clean\n"
+		<< "  -w, --write   Tidy files or directories in place and report each result\n"
+		<< "  -c, --check   Report whether files or directories are clean\n"
 		<< "  --stdin TYPE   Tidy standard input as cpp, html, markdown, shell, or plain\n"
 		<< "  -h, --help    Show this help\n";
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
 bool ReadFile(const std::string& path, std::string& contents) {
-	std::ifstream file(path, std::ios::binary);
-	if (!file) {
-		std::cerr << "wombat: cannot read '" << path << "'\n";
+	struct stat fileInfo;
+	if (stat(path.c_str(), &fileInfo) != 0) {
+		std::cerr << "wombat: cannot inspect '" << path << "': " << std::strerror(errno) << '\n';
 		return false;
 	}
-	contents.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+	if (S_ISDIR(fileInfo.st_mode)) {
+		std::cerr << "wombat: '" << path << "' is a directory; recursive formatting is not implemented yet\n";
+		return false;
+	}
+	if (!S_ISREG(fileInfo.st_mode)) {
+		std::cerr << "wombat: '" << path << "' is not a regular file\n";
+		return false;
+	}
+
+	try {
+		std::ifstream file(path, std::ios::binary);
+		if (!file) {
+			std::cerr << "wombat: cannot read '" << path << "'\n";
+			return false;
+		}
+		contents.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+		if (file.bad()) {
+			std::cerr << "wombat: failed while reading '" << path << "'\n";
+			return false;
+		}
+	} catch (const std::ios_base::failure& exception) {
+		std::cerr << "wombat: cannot read '" << path << "': " << exception.what() << '\n';
+		return false;
+	}
 	return true;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool IsSkippedDirectory(const std::string& name) {
+	static const std::vector<std::string> skippedDirectories = {
+		".git", ".hg", ".svn", "build", "node_modules", "third_party", "vendor"
+	};
+	return std::find(skippedDirectories.begin(), skippedDirectories.end(), name) != skippedDirectories.end();
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool HasShellShebang(const std::string& path) {
+	try {
+		std::ifstream file(path, std::ios::binary);
+		std::string firstLine;
+		if (!file || !std::getline(file, firstLine) || firstLine.compare(0, 2, "#!") != 0) {
+			return false;
+		}
+		return firstLine.find("/bash") != std::string::npos || firstLine.find("/sh") != std::string::npos
+			|| firstLine.find(" sh") != std::string::npos || firstLine.find(" bash") != std::string::npos;
+	} catch (const std::ios_base::failure&) {
+		return false;
+	}
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool IsRecursiveCandidate(const std::string& path) {
+	return DetectFileType(path) != FileType::Plain || HasShellShebang(path);
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool CollectInputPath(const std::string& path, bool fromDirectory, std::vector<std::string>& paths) {
+	struct stat fileInfo;
+	if (lstat(path.c_str(), &fileInfo) != 0) {
+		std::cerr << "wombat: cannot inspect '" << path << "': " << std::strerror(errno) << '\n';
+		return false;
+	}
+	if (S_ISLNK(fileInfo.st_mode)) {
+		if (!fromDirectory) {
+			std::cerr << "wombat: refusing symbolic link '" << path << "'\n";
+			return false;
+		}
+		return true;
+	}
+	if (S_ISREG(fileInfo.st_mode)) {
+		if (!fromDirectory || IsRecursiveCandidate(path)) {
+			paths.push_back(path);
+		}
+		return true;
+	}
+	if (!S_ISDIR(fileInfo.st_mode)) {
+		std::cerr << "wombat: '" << path << "' is not a regular file or directory\n";
+		return false;
+	}
+
+	DIR* directory = opendir(path.c_str());
+	if (directory == nullptr) {
+		std::cerr << "wombat: cannot open directory '" << path << "': " << std::strerror(errno) << '\n';
+		return false;
+	}
+	std::vector<std::string> names;
+	while (dirent* entry = readdir(directory)) {
+		std::string name = entry->d_name;
+		if (name != "." && name != ".." && !IsSkippedDirectory(name)) {
+			names.push_back(name);
+		}
+	}
+	closedir(directory);
+	std::sort(names.begin(), names.end());
+
+	bool success = true;
+	for (const std::string& name : names) {
+		std::string child = path == "/" ? path + name : path + "/" + name;
+		success = CollectInputPath(child, true, paths) && success;
+	}
+	return success;
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
@@ -245,8 +348,20 @@ int main(int argc, char** argv) {
 		PrintUsage();
 		return 2;
 	}
+	std::vector<std::string> requestedPaths = paths;
+	paths.clear();
+	bool pathFailed = false;
+	for (const std::string& path : requestedPaths) {
+		pathFailed = !CollectInputPath(path, false, paths) || pathFailed;
+	}
+	std::sort(paths.begin(), paths.end());
+	paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+	if (paths.empty()) {
+		std::cerr << "wombat: no supported files found\n";
+		return 2;
+	}
 
-	bool failed = false;
+	bool failed = pathFailed;
 	bool changed = false;
 	std::vector<PendingChange> pendingChanges;
 	for (const std::string& path : paths) {

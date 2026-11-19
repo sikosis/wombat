@@ -75,4 +75,14 @@ if "$wombat" --write "$temporary_directory/invalid.bash" >/dev/null 2>&1; then
 fi
 cmp "$temporary_directory/invalid.bash" "$temporary_directory/invalid-original.bash"
 
+mkdir -p "$temporary_directory/directory/nested" "$temporary_directory/directory/build"
+printf '#!/bin/bash\nif true;then\necho recursive\nfi\n' > "$temporary_directory/directory/nested/script"
+printf '#!/bin/bash\nif true;then\necho ignored\nfi\n' > "$temporary_directory/directory/build/ignored.sh"
+printf 'plain text  ' > "$temporary_directory/directory/notes.txt"
+"$wombat" --write "$temporary_directory/directory" | grep -q 'formatted: .*nested/script'
+[ "$(sed -n '2p' "$temporary_directory/directory/nested/script")" = 'if true; then' ]
+[ "$(sed -n '2p' "$temporary_directory/directory/build/ignored.sh")" = 'if true;then' ]
+[ "$(cat "$temporary_directory/directory/notes.txt")" = 'plain text  ' ]
+"$wombat" --check "$temporary_directory/directory" | grep -q 'clean: .*nested/script'
+
 printf 'Wombat tests passed.\n'
