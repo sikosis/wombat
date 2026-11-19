@@ -13,6 +13,7 @@ enum class FileType {
 
 FileType DetectFileType(const std::string& path);
 FileType ParseFileType(const std::string& name);
+bool FormatText(const std::string& input, FileType fileType, std::string& output, std::string& error);
 std::string TidyText(const std::string& input, FileType fileType);
 
 #endif

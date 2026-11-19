@@ -9,11 +9,21 @@ common whitespace problems without trying to rewrite the structure of a file.
 
 ## Build
 
+Clone Wombat with its parser dependencies, then build it:
+
 ```sh
+git clone --recurse-submodules <wombat-repository-url>
+cd wombat
 make
 ```
 
 The resulting executable is `build/wombat`.
+
+For an existing checkout, initialise the dependencies before building:
+
+```sh
+git submodule update --init --recursive
+```
 
 ## Install
 
@@ -55,10 +65,16 @@ shebang are recognised as shell scripts.
 
 ### Bash formatting
 
-Wombat currently gives Bash and POSIX shell scripts the most complete
-formatting pass. It tidies indentation for `if`, `else`, `for`, `while`, and
-function blocks; spaces test expressions, pipelines, command separators, and
-logical operators; and leaves quoted strings and comments intact.
+Wombat uses the Tree-sitter Bash grammar to parse every Bash and POSIX shell
+script before and after formatting. It understands functions, conditionals,
+loops, `case`, arrays, arithmetic, command and process substitutions, tests,
+redirects, and heredocs. Syntax-sensitive heredoc content is preserved exactly.
+
+Formatting is transactional: if the original script has a syntax error, or if
+the formatted result does not parse, Wombat reports the location and refuses
+to write the file. It tidies block indentation, pipelines, command separators,
+logical operators, trailing whitespace, and line endings while preserving
+quoted strings, comments, test expressions, array subscripts, and heredocs.
 
 ## Formatting rules
 
@@ -76,9 +92,19 @@ logical operators; and leaves quoted strings and comments intact.
 Write mode reports `formatted:` or `unchanged:` for every file. Check mode
 reports `needs formatting:` or `clean:` so a successful command never looks
 like it silently did nothing. With no mode option, Wombat previews the result
-and asks whether to apply it. When Haiku's `hum` is installed and the command
-is running in a terminal, Wombat uses its interactive confirmation selector.
-It falls back to a built-in `y/N` prompt when `hum` is unavailable.
+as a colour-coded diff: original lines are red, formatted lines are green, and
+file headers are cyan. Colour is disabled automatically when output is piped,
+when the terminal is unsupported, or when `NO_COLOR` is set. Wombat then asks
+whether to apply the changes. When Haiku's `hum` is installed and the command
+is running in a terminal, Wombat uses its interactive confirmation selector;
+otherwise it falls back to a built-in `y/N` prompt.
 
-Wombat deliberately avoids parsing or rearranging code. This keeps it useful
-for quick cleanup while reducing the chance of changing program behaviour.
+Wombat uses parsing to understand Bash structure, but deliberately avoids
+rewriting commands or expressions. This reduces the chance of changing program
+behaviour while still providing useful, consistent formatting.
+
+## Third-party components
+
+Wombat statically builds the MIT-licensed Tree-sitter runtime and official
+Tree-sitter Bash grammar from pinned Git submodules. See
+[`THIRD_PARTY.md`](THIRD_PARTY.md) for versions and licence links.

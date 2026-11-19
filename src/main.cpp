@@ -1,9 +1,11 @@
 #include "Formatter.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -15,6 +17,122 @@ struct PendingChange {
 	std::string path;
 	std::string contents;
 };
+
+struct DiffLine {
+	char marker;
+	std::string text;
+};
+
+bool SupportsColour(int descriptor) {
+	const char* terminal = std::getenv("TERM");
+	return isatty(descriptor) && std::getenv("NO_COLOR") == nullptr
+		&& (terminal == nullptr || std::string(terminal) != "dumb");
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::string Coloured(const std::string& text, const char* colour, bool enabled) {
+	return enabled ? std::string(colour) + text + "\033[0m" : text;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::vector<std::string> SplitLines(const std::string& text) {
+	std::vector<std::string> lines;
+	std::istringstream stream(text);
+	std::string line;
+	while (std::getline(stream, line)) {
+		lines.push_back(line);
+	}
+	return lines;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::vector<DiffLine> BuildDiff(const std::string& original, const std::string& formatted) {
+	std::vector<std::string> oldLines = SplitLines(original);
+	std::vector<std::string> newLines = SplitLines(formatted);
+	std::vector<DiffLine> diff;
+	if (oldLines.size() * newLines.size() > 2000000) {
+		for (const std::string& line : oldLines) {
+			diff.push_back({'-', line});
+		}
+		for (const std::string& line : newLines) {
+			diff.push_back({'+', line});
+		}
+		return diff;
+	}
+
+	std::size_t columns = newLines.size() + 1;
+	std::vector<unsigned int> lengths((oldLines.size() + 1) * columns, 0);
+	for (std::size_t oldIndex = oldLines.size(); oldIndex-- > 0;) {
+		for (std::size_t newIndex = newLines.size(); newIndex-- > 0;) {
+			std::size_t position = oldIndex * columns + newIndex;
+			if (oldLines[oldIndex] == newLines[newIndex]) {
+				lengths[position] = lengths[(oldIndex + 1) * columns + newIndex + 1] + 1;
+			} else {
+				lengths[position] = std::max(lengths[(oldIndex + 1) * columns + newIndex],
+					lengths[oldIndex * columns + newIndex + 1]);
+			}
+		}
+	}
+
+	std::size_t oldIndex = 0;
+	std::size_t newIndex = 0;
+	while (oldIndex < oldLines.size() || newIndex < newLines.size()) {
+		if (oldIndex < oldLines.size() && newIndex < newLines.size()
+			&& oldLines[oldIndex] == newLines[newIndex]) {
+			diff.push_back({' ', oldLines[oldIndex]});
+			++oldIndex;
+			++newIndex;
+		} else if (newIndex >= newLines.size() || (oldIndex < oldLines.size()
+			&& lengths[(oldIndex + 1) * columns + newIndex] >= lengths[oldIndex * columns + newIndex + 1])) {
+			diff.push_back({'-', oldLines[oldIndex++]});
+		} else {
+			diff.push_back({'+', newLines[newIndex++]});
+		}
+	}
+	return diff;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+void PrintDiff(const std::string& path, const std::string& original, const std::string& formatted) {
+	bool colour = SupportsColour(STDOUT_FILENO);
+	std::cout << Coloured("--- " + path + " (original)", "\033[36m", colour) << '\n'
+		<< Coloured("+++ " + path + " (formatted)", "\033[36m", colour) << '\n';
+	std::vector<DiffLine> diff = BuildDiff(original, formatted);
+	std::vector<bool> visible(diff.size(), false);
+	for (std::size_t index = 0; index < diff.size(); ++index) {
+		if (diff[index].marker == ' ') {
+			continue;
+		}
+		std::size_t start = index > 2 ? index - 2 : 0;
+		std::size_t end = std::min(diff.size(), index + 3);
+		for (std::size_t context = start; context < end; ++context) {
+			visible[context] = true;
+		}
+	}
+
+	bool previousVisible = false;
+	for (std::size_t index = 0; index < diff.size(); ++index) {
+		if (!visible[index]) {
+			previousVisible = false;
+			continue;
+		}
+		if (!previousVisible && index > 0) {
+			std::cout << Coloured("@@ ... @@", "\033[36m", colour) << '\n';
+		}
+		std::string line(1, diff[index].marker);
+		line += diff[index].text;
+		const char* lineColour = diff[index].marker == '-' ? "\033[31m"
+			: (diff[index].marker == '+' ? "\033[32m" : "\033[2m");
+		std::cout << Coloured(line, lineColour, colour) << '\n';
+		previousVisible = true;
+	}
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+void PrintStatus(const std::string& label, const std::string& path, const char* colour) {
+	std::cout << Coloured(label, colour, SupportsColour(STDOUT_FILENO)) << ' ' << path << '\n';
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
 
 void PrintUsage() {
 	std::cout << "Usage: wombat [--write | --check] FILE...\n"
@@ -103,7 +221,13 @@ int main(int argc, char** argv) {
 				return 2;
 			}
 			std::string input{std::istreambuf_iterator<char>(std::cin), std::istreambuf_iterator<char>()};
-			std::cout << TidyText(input, ParseFileType(argv[++index]));
+			std::string output;
+			std::string error;
+			if (!FormatText(input, ParseFileType(argv[++index]), output, error)) {
+				std::cerr << "wombat: " << error << '\n';
+				return 2;
+			}
+			std::cout << output;
 			return 0;
 		} else if (!argument.empty() && argument[0] == '-') {
 			std::cerr << "wombat: unknown option '" << argument << "'\n";
@@ -131,31 +255,34 @@ int main(int argc, char** argv) {
 			failed = true;
 			continue;
 		}
-		std::string output = TidyText(input, FileTypeForContents(path, input));
+		std::string output;
+		std::string formattingError;
+		if (!FormatText(input, FileTypeForContents(path, input), output, formattingError)) {
+			std::cerr << "wombat: " << path << ": " << formattingError << '\n';
+			failed = true;
+			continue;
+		}
 		if (output == input) {
 			if (writeFiles) {
-				std::cout << "unchanged: " << path << '\n';
+				PrintStatus("unchanged:", path, "\033[33m");
 			} else if (checkFiles) {
-				std::cout << "clean: " << path << '\n';
+				PrintStatus("clean:", path, "\033[32m");
 			} else {
-				std::cout << "unchanged: " << path << '\n';
+				PrintStatus("unchanged:", path, "\033[33m");
 			}
 			continue;
 		}
 		changed = true;
 		if (writeFiles) {
 			if (WriteFile(path, output)) {
-				std::cout << "formatted: " << path << '\n';
+				PrintStatus("formatted:", path, "\033[32m");
 			} else {
 				failed = true;
 			}
 		} else if (checkFiles) {
-			std::cout << "needs formatting: " << path << '\n';
+			PrintStatus("needs formatting:", path, "\033[31m");
 		} else {
-			if (paths.size() > 1) {
-				std::cout << "--- " << path << " (formatted preview) ---\n";
-			}
-			std::cout << output;
+			PrintDiff(path, input, output);
 			pendingChanges.push_back({path, output});
 		}
 	}
@@ -164,7 +291,7 @@ int main(int argc, char** argv) {
 		if (ConfirmChanges()) {
 			for (const PendingChange& change : pendingChanges) {
 				if (WriteFile(change.path, change.contents)) {
-					std::cout << "formatted: " << change.path << '\n';
+					PrintStatus("formatted:", change.path, "\033[32m");
 				} else {
 					failed = true;
 				}

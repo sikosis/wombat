@@ -1,5 +1,7 @@
 #include "Formatter.h"
 
+#include "BashParser.h"
+
 #include <algorithm>
 #include <cctype>
 #include <sstream>
@@ -233,10 +235,14 @@ std::string TidyShellLine(std::string line) {
 		}
 		escaped = false;
 
-		if (character == '[') {
+		bool startsDoubleTest = character == '[' && index + 1 < line.size() && line[index + 1] == '[';
+		bool startsSingleTest = character == '[' && (index == content
+			|| std::isspace(static_cast<unsigned char>(line[index - 1])) || line[index - 1] == ';')
+			&& index + 1 < line.size() && std::isspace(static_cast<unsigned char>(line[index + 1]));
+		if (startsDoubleTest || startsSingleTest) {
 			testExpression = true;
 			output.push_back(character);
-			if (index + 1 < line.size() && line[index + 1] == '[') {
+			if (startsDoubleTest) {
 				output.push_back('[');
 				++index;
 			}
@@ -257,22 +263,8 @@ std::string TidyShellLine(std::string line) {
 			testExpression = false;
 			continue;
 		}
-		if (testExpression && (character == '=' || character == '!' || character == '<' || character == '>')
-			&& (character == '=' || character == '<' || character == '>'
-				|| (index + 1 < line.size() && line[index + 1] == '='))) {
-			RemoveOutputSpaces(output);
-			AddOutputSpace(output);
-			if (index + 1 < line.size() && line[index + 1] == '=') {
-				output.push_back(character);
-				output.push_back('=');
-				++index;
-			} else {
-				output.push_back(character);
-			}
-			output.push_back(' ');
-			while (index + 1 < line.size() && line[index + 1] == ' ') {
-				++index;
-			}
+		if (testExpression) {
+			output.push_back(character);
 			continue;
 		}
 
@@ -311,8 +303,14 @@ bool EndsWith(const std::string& value, const std::string& suffix) {
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
+bool StartsWith(const std::string& value, const std::string& prefix) {
+	return value.compare(0, prefix.size(), prefix) == 0;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
 bool IsShellClosingLine(const std::string& line) {
-	return line == "fi" || line == "done" || line == "esac" || line == "}"
+	return line == "fi" || StartsWith(line, "fi ") || line == "done" || StartsWith(line, "done ")
+		|| line == "esac" || StartsWith(line, "esac ") || line == "}"
 		|| line == "else" || line.compare(0, 5, "elif ") == 0;
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
@@ -363,7 +361,7 @@ FileType ParseFileType(const std::string& name) {
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
-std::string TidyText(const std::string& input, FileType fileType) {
+bool FormatText(const std::string& input, FileType fileType, std::string& output, std::string& error) {
 	std::string normalised;
 	normalised.reserve(input.size());
 	for (std::size_t index = 0; index < input.size(); ++index) {
@@ -377,11 +375,24 @@ std::string TidyText(const std::string& input, FileType fileType) {
 		}
 	}
 
+	BashParseInfo bashParseInfo;
+	if (fileType == FileType::Shell && !AnalyseBash(normalised, bashParseInfo, error)) {
+		return false;
+	}
+
 	std::istringstream stream(normalised);
-	std::string output;
+	output.clear();
 	std::string line;
 	int shellIndentation = 0;
+	std::vector<int> caseIndentations;
+	std::size_t lineNumber = 0;
 	while (std::getline(stream, line)) {
+		if (fileType == FileType::Shell && lineNumber < bashParseInfo.protectedLines.size()
+			&& bashParseInfo.protectedLines[lineNumber]) {
+			output += line + '\n';
+			++lineNumber;
+			continue;
+		}
 		line = TrimTrailingWhitespace(line);
 		if (fileType != FileType::Plain && fileType != FileType::Markdown) {
 			line = ConvertLeadingSpacesToTabs(line);
@@ -397,23 +408,58 @@ std::string TidyText(const std::string& input, FileType fileType) {
 			std::size_t content = line.find_first_not_of("\t ");
 			if (content != std::string::npos && line.compare(content, 2, "#!") != 0) {
 				std::string shellContent = line.substr(content);
+				bool caseTerminator = StartsWith(shellContent, ";;") || StartsWith(shellContent, ";&");
+				bool casePattern = !caseIndentations.empty()
+					&& shellIndentation == caseIndentations.back() + 1 && EndsWith(shellContent, ")");
 				if (IsShellClosingLine(shellContent) && shellIndentation > 0) {
 					--shellIndentation;
 				}
 				if (shellIndentation > 0 || IsShellClosingLine(shellContent) || IsShellOpeningLine(shellContent)) {
 					line = std::string(static_cast<std::size_t>(shellIndentation), '\t') + shellContent;
 				}
+				if (StartsWith(shellContent, "case ") && EndsWith(shellContent, " in")) {
+					caseIndentations.push_back(shellIndentation);
+				}
 				if (IsShellOpeningLine(shellContent)) {
 					++shellIndentation;
+				}
+				if (casePattern) {
+					shellIndentation = caseIndentations.back() + 2;
+				} else if (caseTerminator && !caseIndentations.empty()) {
+					shellIndentation = caseIndentations.back() + 1;
+				} else if (StartsWith(shellContent, "esac") && !caseIndentations.empty()) {
+					caseIndentations.pop_back();
 				}
 			}
 		}
 		output += line + '\n';
+		++lineNumber;
 	}
 
 	while (output.size() > 1 && output.back() == '\n' && output[output.size() - 2] == '\n') {
 		output.pop_back();
 	}
-	return output.empty() ? "\n" : output;
+	if (output.empty()) {
+		output = "\n";
+	}
+	if (fileType == FileType::Shell) {
+		BashParseInfo formattedParseInfo;
+		std::string formattedError;
+		if (!AnalyseBash(output, formattedParseInfo, formattedError)) {
+			error = "formatter produced invalid Bash: " + formattedError;
+			return false;
+		}
+	}
+	return true;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::string TidyText(const std::string& input, FileType fileType) {
+	std::string output;
+	std::string error;
+	if (!FormatText(input, fileType, output, error)) {
+		return input;
+	}
+	return output;
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
