@@ -124,9 +124,12 @@ like it silently did nothing. With no mode option, Wombat previews the result
 as a colour-coded diff: original lines are red, formatted lines are green, and
 file headers are cyan. Colour is disabled automatically when output is piped,
 when the terminal is unsupported, or when `NO_COLOR` is set. Wombat then asks
-whether to apply the changes. When Haiku's `hum` is installed and the command
-is running in a terminal, Wombat uses its interactive confirmation selector;
-otherwise it falls back to a built-in `y/N` prompt.
+whether to apply each changed file independently. For multi-file runs, Wombat
+uses `hum pager` to review each diff and `hum confirm` to accept or skip that
+file when Hum and an interactive terminal are available. The pager shows line
+numbers for the displayed diff rows, making long reviews easier to navigate and
+discuss. Otherwise Wombat prints each diff directly and falls back to a built-in
+`y/N` prompt per file.
 
 Wombat uses parsing to understand Bash structure, but deliberately avoids
 rewriting commands or expressions. This reduces the chance of changing program

@@ -51,11 +51,19 @@ printf '%s\n' "$decline_output" | grep -q "^--- $temporary_directory/prompt.sh (
 printf '%s\n' "$decline_output" | grep -q "^+++ $temporary_directory/prompt.sh (formatted)$"
 printf '%s\n' "$decline_output" | grep -q '^-if \[ -n "\$value" \];then$'
 printf '%s\n' "$decline_output" | grep -q '^+if \[ -n "\$value" \]; then$'
-printf '%s\n' "$decline_output" | grep -q 'No files changed.'
+printf '%s\n' "$decline_output" | grep -q "skipped: $temporary_directory/prompt.sh"
 
 accept_output=$(printf 'y\n' | "$wombat" "$temporary_directory/prompt.sh")
 [ "$(sed -n '2p' "$temporary_directory/prompt.sh")" = 'if [ -n "$value" ]; then' ]
 printf '%s\n' "$accept_output" | grep -q "formatted: $temporary_directory/prompt.sh"
+
+printf '#!/bin/bash\necho one|cat\n' > "$temporary_directory/confirm-a.sh"
+printf '#!/bin/bash\necho two|cat\n' > "$temporary_directory/confirm-b.sh"
+multiple_output=$(printf 'y\nn\n' | "$wombat" "$temporary_directory/confirm-a.sh" "$temporary_directory/confirm-b.sh")
+[ "$(sed -n '2p' "$temporary_directory/confirm-a.sh")" = 'echo one | cat' ]
+[ "$(sed -n '2p' "$temporary_directory/confirm-b.sh")" = 'echo two|cat' ]
+printf '%s\n' "$multiple_output" | grep -q "formatted: $temporary_directory/confirm-a.sh"
+printf '%s\n' "$multiple_output" | grep -q "skipped: $temporary_directory/confirm-b.sh"
 
 cp tests/fixtures/bash-comprehensive.bash "$temporary_directory/comprehensive.bash"
 "$wombat" --write "$temporary_directory/comprehensive.bash" >/dev/null

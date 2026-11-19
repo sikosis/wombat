@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -16,11 +17,6 @@
 #include <unistd.h>
 
 namespace {
-
-struct PendingChange {
-	std::string path;
-	std::string contents;
-};
 
 struct DiffLine {
 	char marker;
@@ -97,9 +93,10 @@ std::vector<DiffLine> BuildDiff(const std::string& original, const std::string& 
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
-void PrintDiff(const std::string& path, const std::string& original, const std::string& formatted) {
-	bool colour = SupportsColour(STDOUT_FILENO);
-	std::cout << Coloured("--- " + path + " (original)", "\033[36m", colour) << '\n'
+std::string RenderDiff(const std::string& path, const std::string& original, const std::string& formatted,
+	bool colour) {
+	std::ostringstream rendered;
+	rendered << Coloured("--- " + path + " (original)", "\033[36m", colour) << '\n'
 		<< Coloured("+++ " + path + " (formatted)", "\033[36m", colour) << '\n';
 	std::vector<DiffLine> diff = BuildDiff(original, formatted);
 	std::vector<bool> visible(diff.size(), false);
@@ -121,15 +118,40 @@ void PrintDiff(const std::string& path, const std::string& original, const std::
 			continue;
 		}
 		if (!previousVisible && index > 0) {
-			std::cout << Coloured("@@ ... @@", "\033[36m", colour) << '\n';
+			rendered << Coloured("@@ ... @@", "\033[36m", colour) << '\n';
 		}
 		std::string line(1, diff[index].marker);
 		line += diff[index].text;
 		const char* lineColour = diff[index].marker == '-' ? "\033[31m"
 			: (diff[index].marker == '+' ? "\033[32m" : "\033[2m");
-		std::cout << Coloured(line, lineColour, colour) << '\n';
+		rendered << Coloured(line, lineColour, colour) << '\n';
 		previousVisible = true;
 	}
+	return rendered.str();
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool HasHum() {
+	return isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)
+		&& std::system("command -v hum >/dev/null 2>&1") == 0;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+void ReviewDiff(const std::string& path, const std::string& original, const std::string& formatted,
+	bool preferPager) {
+	bool colour = SupportsColour(STDOUT_FILENO);
+	std::string rendered = RenderDiff(path, original, formatted, colour);
+	if (preferPager && HasHum()) {
+		FILE* pager = popen("hum pager --show-line-numbers --no-soft-wrap", "w");
+		if (pager != nullptr) {
+			std::size_t written = std::fwrite(rendered.data(), 1, rendered.size(), pager);
+			int result = pclose(pager);
+			if (written == rendered.size() && result == 0) {
+				return;
+			}
+		}
+	}
+	std::cout << rendered;
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
@@ -285,13 +307,11 @@ FileType FileTypeForContents(const std::string& path, const std::string& content
 //---------------------------------------------------------------------------------------------------------------------------------//
 
 bool ConfirmChanges() {
-	if (isatty(STDIN_FILENO)) {
-		if (std::system("command -v hum >/dev/null 2>&1") == 0) {
-			return std::system("hum confirm 'Apply these formatting changes?'") == 0;
-		}
+	if (HasHum()) {
+		return std::system("hum confirm 'Apply changes to this file?'") == 0;
 	}
 
-	std::cout << "Apply these formatting changes? [y/N] " << std::flush;
+	std::cout << "Apply changes to this file? [y/N] " << std::flush;
 	std::string answer;
 	if (!std::getline(std::cin, answer)) {
 		std::cout << '\n';
@@ -363,7 +383,6 @@ int main(int argc, char** argv) {
 
 	bool failed = pathFailed;
 	bool changed = false;
-	std::vector<PendingChange> pendingChanges;
 	for (const std::string& path : paths) {
 		std::string input;
 		if (!ReadFile(path, input)) {
@@ -397,22 +416,16 @@ int main(int argc, char** argv) {
 		} else if (checkFiles) {
 			PrintStatus("needs formatting:", path, "\033[31m");
 		} else {
-			PrintDiff(path, input, output);
-			pendingChanges.push_back({path, output});
-		}
-	}
-
-	if (!writeFiles && !checkFiles && !pendingChanges.empty()) {
-		if (ConfirmChanges()) {
-			for (const PendingChange& change : pendingChanges) {
-				if (WriteFile(change.path, change.contents)) {
-					PrintStatus("formatted:", change.path, "\033[32m");
+			ReviewDiff(path, input, output, paths.size() > 1);
+			if (ConfirmChanges()) {
+				if (WriteFile(path, output)) {
+					PrintStatus("formatted:", path, "\033[32m");
 				} else {
 					failed = true;
 				}
+			} else {
+				PrintStatus("skipped:", path, "\033[33m");
 			}
-		} else {
-			std::cout << "No files changed.\n";
 		}
 	}
 
