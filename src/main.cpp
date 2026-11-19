@@ -1,4 +1,5 @@
 #include "Formatter.h"
+#include "Version.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -161,12 +162,14 @@ void PrintStatus(const std::string& label, const std::string& path, const char* 
 //---------------------------------------------------------------------------------------------------------------------------------//
 
 void PrintUsage() {
-	std::cout << "Usage: wombat [--write | --check] PATH...\n"
+	std::cout << "Wombat " << WOMBAT_VERSION << "\n\n"
+		<< "Usage: wombat [--write | --check] PATH...\n"
 		<< "       wombat --stdin TYPE\n\n"
 		<< "Options:\n"
 		<< "  -w, --write   Tidy files or directories in place and report each result\n"
 		<< "  -c, --check   Report whether files or directories are clean\n"
 		<< "  --stdin TYPE   Tidy standard input as cpp, html, markdown, shell, or plain\n"
+		<< "  -v, --version Show the Wombat version\n"
 		<< "  -h, --help    Show this help\n";
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
@@ -332,6 +335,10 @@ int main(int argc, char** argv) {
 		std::string argument = argv[index];
 		if (argument == "-h" || argument == "--help") {
 			PrintUsage();
+			return 0;
+		}
+		if (argument == "-v" || argument == "--version") {
+			std::cout << "wombat " << WOMBAT_VERSION << '\n';
 			return 0;
 		}
 		if (argument == "-w" || argument == "--write") {

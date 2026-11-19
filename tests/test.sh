@@ -6,6 +6,10 @@ wombat=${WOMBAT:-build/wombat}
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/wombat-test.XXXXXX")
 trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
 
+[ "$("$wombat" --version)" = 'wombat 0.11' ]
+"$wombat" --help | grep -q '^Wombat 0\.11$'
+"$wombat" --help | grep -q '^  -v, --version Show the Wombat version$'
+
 printf 'if(true) {  \r\n    return 0;\t\r\n}\r\n\r\n' > "$temporary_directory/sample.cpp"
 printf 'void Add() {\n    values.push_back({\x27-\x27, 1});\n}\n' > "$temporary_directory/initializer.cpp"
 printf '#Heading \n-item\n' > "$temporary_directory/sample.md"

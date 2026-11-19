@@ -66,6 +66,9 @@ make install DESTDIR=/temporary/package-root
 ## Usage
 
 ```sh
+# Show the installed version
+build/wombat --version
+
 # Preview a tidied file, then confirm whether to apply the changes
 build/wombat source.cpp
 
