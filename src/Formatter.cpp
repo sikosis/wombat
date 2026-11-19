@@ -150,7 +150,8 @@ std::string TidyMarkdownLine(std::string line) {
 
 	if (line[content] == '#') {
 		std::size_t headingEnd = line.find_first_not_of('#', content);
-		if (headingEnd != std::string::npos && line[headingEnd] != ' ') {
+		std::size_t headingLevel = headingEnd == std::string::npos ? line.size() - content : headingEnd - content;
+		if (headingLevel <= 6 && headingEnd != std::string::npos && line[headingEnd] != ' ') {
 			line.insert(headingEnd, " ");
 		}
 	}
@@ -159,8 +160,21 @@ std::string TidyMarkdownLine(std::string line) {
 		&& line[content + 1] != ' ') {
 		line.insert(content + 1, " ");
 	}
-	if (line[content] == '>' && content + 1 < line.size() && line[content + 1] != ' ') {
-		line.insert(content + 1, " ");
+	if (line[content] == '>') {
+		std::size_t quoteEnd = content;
+		std::size_t quoteDepth = 0;
+		while (quoteEnd < line.size() && line[quoteEnd] == '>') {
+			++quoteDepth;
+			++quoteEnd;
+			while (quoteEnd < line.size() && line[quoteEnd] == ' ') {
+				++quoteEnd;
+			}
+		}
+		std::string quotePrefix;
+		for (std::size_t depth = 0; depth < quoteDepth; ++depth) {
+			quotePrefix += "> ";
+		}
+		line = line.substr(0, content) + quotePrefix + line.substr(quoteEnd);
 	}
 	std::size_t numberEnd = content;
 	while (numberEnd < line.size() && std::isdigit(static_cast<unsigned char>(line[numberEnd]))) {
@@ -170,6 +184,222 @@ std::string TidyMarkdownLine(std::string line) {
 		line.insert(numberEnd + 1, " ");
 	}
 	return line;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::string TrimMarkdownCell(const std::string& value) {
+	std::size_t start = value.find_first_not_of(" \t");
+	if (start == std::string::npos) {
+		return "";
+	}
+	std::size_t end = value.find_last_not_of(" \t");
+	return value.substr(start, end - start + 1);
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::string TrimMarkdownTrailingWhitespace(const std::string& line) {
+	std::size_t end = line.find_last_not_of(" \t");
+	if (end == std::string::npos) {
+		return "";
+	}
+	std::size_t trailingSpaces = line.size() - end - 1;
+	if (trailingSpaces >= 2 && line.find('\t', end + 1) == std::string::npos) {
+		return line.substr(0, end + 1) + "  ";
+	}
+	return line.substr(0, end + 1);
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool MarkdownFenceStart(const std::string& line, char& marker, std::size_t& markerLength) {
+	std::size_t content = line.find_first_not_of(' ');
+	if (content == std::string::npos || content > 3 || (line[content] != '`' && line[content] != '~')) {
+		return false;
+	}
+	marker = line[content];
+	markerLength = 0;
+	while (content + markerLength < line.size() && line[content + markerLength] == marker) {
+		++markerLength;
+	}
+	return markerLength >= 3;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool MarkdownFenceEnd(const std::string& line, char marker, std::size_t markerLength) {
+	char closingMarker = '\0';
+	std::size_t closingLength = 0;
+	if (!MarkdownFenceStart(line, closingMarker, closingLength) || closingMarker != marker
+		|| closingLength < markerLength) {
+		return false;
+	}
+	std::size_t content = line.find_first_not_of(' ');
+	return line.find_first_not_of(" \t", content + closingLength) == std::string::npos;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::vector<std::string> SplitMarkdownTableRow(const std::string& line) {
+	std::string row = TrimMarkdownCell(line);
+	if (!row.empty() && row.front() == '|') {
+		row.erase(row.begin());
+	}
+	if (!row.empty() && row.back() == '|') {
+		row.pop_back();
+	}
+
+	std::vector<std::string> cells;
+	std::string cell;
+	bool escaped = false;
+	bool code = false;
+	for (char character : row) {
+		if (character == '`' && !escaped) {
+			code = !code;
+		}
+		if (character == '|' && !escaped && !code) {
+			cells.push_back(TrimMarkdownCell(cell));
+			cell.clear();
+		} else {
+			cell.push_back(character);
+		}
+		escaped = character == '\\' && !escaped;
+		if (character != '\\') {
+			escaped = false;
+		}
+	}
+	cells.push_back(TrimMarkdownCell(cell));
+	return cells;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+bool MarkdownTableSeparator(const std::vector<std::string>& cells) {
+	if (cells.empty()) {
+		return false;
+	}
+	for (std::string cell : cells) {
+		if (!cell.empty() && cell.front() == ':') {
+			cell.erase(cell.begin());
+		}
+		if (!cell.empty() && cell.back() == ':') {
+			cell.pop_back();
+		}
+		if (cell.size() < 3 || cell.find_first_not_of('-') != std::string::npos) {
+			return false;
+		}
+	}
+	return true;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::string RenderMarkdownTableRow(const std::vector<std::string>& cells,
+	const std::vector<std::size_t>& widths, bool separator) {
+	std::string output = "|";
+	for (std::size_t index = 0; index < cells.size(); ++index) {
+		std::string cell = cells[index];
+		if (separator) {
+			bool leftAligned = !cell.empty() && cell.front() == ':';
+			bool rightAligned = !cell.empty() && cell.back() == ':';
+			std::size_t dashCount = widths[index] - (leftAligned ? 1 : 0) - (rightAligned ? 1 : 0);
+			cell = (leftAligned ? ":" : "") + std::string(std::max<std::size_t>(3, dashCount), '-')
+				+ (rightAligned ? ":" : "");
+		}
+		output += " " + cell + std::string(widths[index] - cell.size(), ' ') + " |";
+	}
+	return output;
+}
+//---------------------------------------------------------------------------------------------------------------------------------//
+
+std::string TidyMarkdownText(const std::string& input) {
+	std::vector<std::string> lines;
+	std::istringstream stream(input);
+	std::string line;
+	while (std::getline(stream, line)) {
+		lines.push_back(line);
+	}
+
+	std::vector<bool> protectedLines(lines.size(), false);
+	bool frontMatter = !lines.empty() && lines.front() == "---";
+	bool fenced = false;
+	char fenceMarker = '\0';
+	std::size_t fenceLength = 0;
+	for (std::size_t index = 0; index < lines.size(); ++index) {
+		if (frontMatter) {
+			protectedLines[index] = true;
+			if (index > 0 && (lines[index] == "---" || lines[index] == "...")) {
+				frontMatter = false;
+			}
+			continue;
+		}
+		if (fenced) {
+			protectedLines[index] = true;
+			if (MarkdownFenceEnd(lines[index], fenceMarker, fenceLength)) {
+				fenced = false;
+			}
+			continue;
+		}
+		if (MarkdownFenceStart(lines[index], fenceMarker, fenceLength)) {
+			protectedLines[index] = true;
+			fenced = true;
+			continue;
+		}
+		std::size_t content = lines[index].find_first_not_of(' ');
+		if (!lines[index].empty() && (lines[index][0] == '\t' || (content != std::string::npos && content >= 4))) {
+			protectedLines[index] = true;
+		}
+	}
+
+	for (std::size_t index = 0; index + 1 < lines.size(); ++index) {
+		if (protectedLines[index] || protectedLines[index + 1] || lines[index].find('|') == std::string::npos) {
+			continue;
+		}
+		std::vector<std::string> header = SplitMarkdownTableRow(lines[index]);
+		std::vector<std::string> separator = SplitMarkdownTableRow(lines[index + 1]);
+		if (header.size() != separator.size() || !MarkdownTableSeparator(separator)) {
+			continue;
+		}
+		std::vector<std::vector<std::string>> rows = {header, separator};
+		std::size_t tableEnd = index + 2;
+		while (tableEnd < lines.size() && !protectedLines[tableEnd]
+			&& lines[tableEnd].find('|') != std::string::npos) {
+			std::vector<std::string> cells = SplitMarkdownTableRow(lines[tableEnd]);
+			if (cells.size() != header.size()) {
+				break;
+			}
+			rows.push_back(cells);
+			++tableEnd;
+		}
+		std::vector<std::size_t> widths(header.size(), 3);
+		for (std::size_t column = 0; column < separator.size(); ++column) {
+			std::size_t colons = (!separator[column].empty() && separator[column].front() == ':' ? 1 : 0)
+				+ (!separator[column].empty() && separator[column].back() == ':' ? 1 : 0);
+			widths[column] = 3 + colons;
+		}
+		for (std::size_t row = 0; row < rows.size(); ++row) {
+			if (row == 1) {
+				continue;
+			}
+			for (std::size_t column = 0; column < rows[row].size(); ++column) {
+				widths[column] = std::max(widths[column], rows[row][column].size());
+			}
+		}
+		for (std::size_t row = 0; row < rows.size(); ++row) {
+			lines[index + row] = RenderMarkdownTableRow(rows[row], widths, row == 1);
+			protectedLines[index + row] = true;
+		}
+		index = tableEnd - 1;
+	}
+
+	std::string output;
+	for (std::size_t index = 0; index < lines.size(); ++index) {
+		if (!protectedLines[index]) {
+			lines[index] = TidyMarkdownLine(TrimMarkdownTrailingWhitespace(lines[index]));
+		}
+		output += lines[index] + '\n';
+	}
+	while (output.size() > 1 && output.back() == '\n' && output[output.size() - 2] == '\n') {
+		output.pop_back();
+	}
+	if (output.empty()) {
+		output = "\n";
+	}
+	return output;
 }
 //---------------------------------------------------------------------------------------------------------------------------------//
 
@@ -376,6 +606,10 @@ bool FormatText(const std::string& input, FileType fileType, std::string& output
 			normalised.push_back(input[index]);
 		}
 	}
+	if (fileType == FileType::Markdown) {
+		output = TidyMarkdownText(normalised);
+		return true;
+	}
 
 	BashParseInfo bashParseInfo;
 	if (fileType == FileType::Shell && !AnalyseBash(normalised, bashParseInfo, error)) {
@@ -403,8 +637,6 @@ bool FormatText(const std::string& input, FileType fileType, std::string& output
 			line = TidyCppLine(line);
 		} else if (fileType == FileType::Html) {
 			line = TidyHtmlLine(line);
-		} else if (fileType == FileType::Markdown) {
-			line = TidyMarkdownLine(line);
 		} else if (fileType == FileType::Shell) {
 			line = TidyShellLine(line);
 			std::size_t content = line.find_first_not_of("\t ");

@@ -8,7 +8,7 @@ trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
 
 printf 'if(true) {  \r\n    return 0;\t\r\n}\r\n\r\n' > "$temporary_directory/sample.cpp"
 printf 'void Add() {\n    values.push_back({\x27-\x27, 1});\n}\n' > "$temporary_directory/initializer.cpp"
-printf '#Heading  \n-item\n' > "$temporary_directory/sample.md"
+printf '#Heading \n-item\n' > "$temporary_directory/sample.md"
 printf '#!/bin/bash\nif [ "$name" != "Wombat" ];then\nprintf "hello"|sed "s/h/H/"&&echo done\nelse\n        echo "a|b" # keep quoted pipe\nfi\n' > "$temporary_directory/sample.sh"
 printf '#!/bin/sh\nif [ -n "$value" ];then\necho yes\nfi\n' > "$temporary_directory/extensionless"
 
@@ -41,6 +41,40 @@ fi'
 [ "$(printf '%s\n' "$write_output" | grep -c '^formatted: ')" -eq 5 ]
 check_output=$("$wombat" --check "$temporary_directory/sample.cpp" "$temporary_directory/initializer.cpp" "$temporary_directory/sample.md" "$temporary_directory/sample.sh" "$temporary_directory/extensionless")
 [ "$(printf '%s\n' "$check_output" | grep -c '^clean: ')" -eq 5 ]
+
+printf '%s\n' \
+	'---' \
+	'title:   Keep exact' \
+	'---' \
+	'' \
+	'#Markdown' \
+	'' \
+	'Keep this hard break  ' \
+	'and trim this one ' \
+	'' \
+	'>>Nested quote' \
+	'1.first item' \
+	'' \
+	'|Name|Status|' \
+	'|:---|---:|' \
+	'|Wombat|Ready|' \
+	'|Hum|Good|' \
+	'' \
+	'```bash' \
+	'if[ "$name"="Wombat" ];then  ' \
+	'echo "#Not a heading"' \
+	'fi' \
+	'```' > "$temporary_directory/comprehensive.md"
+"$wombat" --write "$temporary_directory/comprehensive.md" >/dev/null
+[ "$(sed -n '5p' "$temporary_directory/comprehensive.md")" = '# Markdown' ]
+[ "$(sed -n '10p' "$temporary_directory/comprehensive.md")" = '> > Nested quote' ]
+[ "$(sed -n '11p' "$temporary_directory/comprehensive.md")" = '1. first item' ]
+grep -Fq '| Name   | Status |' "$temporary_directory/comprehensive.md"
+grep -Fq '| :----- | -----: |' "$temporary_directory/comprehensive.md"
+grep -Fq 'if[ "$name"="Wombat" ];then  ' "$temporary_directory/comprehensive.md"
+[ "$(sed -n '7p' "$temporary_directory/comprehensive.md")" = 'Keep this hard break  ' ]
+[ "$(sed -n '8p' "$temporary_directory/comprehensive.md")" = 'and trim this one' ]
+"$wombat" --check "$temporary_directory/comprehensive.md" | grep -q '^clean: '
 
 printf 'if(false) {}  ' > "$temporary_directory/untidy.cpp"
 if untidy_output=$("$wombat" --check "$temporary_directory/untidy.cpp"); then

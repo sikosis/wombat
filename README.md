@@ -105,16 +105,26 @@ to write the file. It tidies block indentation, pipelines, command separators,
 logical operators, trailing whitespace, and line endings while preserving
 quoted strings, comments, test expressions, array subscripts, and heredocs.
 
+### Markdown formatting
+
+Wombat tidies headings, nested block quotes, ordered and unordered lists, and
+aligns pipe tables. It preserves the two trailing spaces used for a Markdown
+hard line break while removing accidental trailing whitespace elsewhere.
+
+YAML front matter, fenced code blocks (including Mermaid diagrams), and
+indented code blocks are protected from formatting. Inline links, images,
+badges, HTML, escaped table pipes, and code spans remain intact.
+
 ## Formatting rules
 
 - Unix line endings and exactly one final newline.
-- No trailing spaces or tabs.
+- No accidental trailing spaces or tabs; Markdown hard breaks are preserved.
 - Leading groups of four spaces become tabs in code files.
 - C and C++ control statements, operators, commas, semicolons, and opening
   braces use consistent spacing outside strings and comments.
 - HTML attributes have consistent spacing around `=`.
-- Markdown list markers, block quotes, numbered lists, and headings use
-  consistent spacing.
+- Markdown list markers, nested block quotes, numbered lists, and headings use
+  consistent spacing, and pipe tables are aligned by column.
 - Shell keywords, pipelines, command lists, and logical operators use
   consistent spacing outside quotes and comments.
 
@@ -151,6 +161,7 @@ gantt
     Native CLI and safe file modes       :done, cli, 2026-11-01, 10d
     Tree-sitter Bash integration         :done, parser, after cli, 8d
     Recursive directory support          :done, recursive, 2026-11-19, 1d
+    Block-aware Markdown formatting      :done, markdown, 2026-11-20, 1d
     Haiku build validation               :active, haiku, 2026-11-19, 14d
 
     section Project formatting
@@ -166,15 +177,16 @@ gantt
 
 ### Planned milestones
 
-| Stage | Outcome | Status |
-| --- | --- | --- |
-| Bash foundation | Parser-backed formatting, heredoc protection, syntax validation | Complete |
-| Haiku validation | Native build, install, colours, and `hum` workflow verified | In progress |
-| Project traversal | Recursive formatting, shebang detection, and safe built-in exclusions | Complete |
-| Ignore rules | `.gitignore` support and binary-file safety | Planned |
-| Configuration | `.wombatrc`, indentation, case, redirect, and operator styles | Planned |
-| Distribution | Atomic writes, backups, Haiku package, metadata, and icon | Planned |
-| Release | Documented, repeatable first public release | Planned |
+| Stage               | Outcome                                                               | Status      |
+| ------------------- | --------------------------------------------------------------------- | ----------- |
+| Bash foundation     | Parser-backed formatting, heredoc protection, syntax validation       | Complete    |
+| Markdown formatting | Protected code blocks, hard breaks, nested quotes, and aligned tables | Complete    |
+| Haiku validation    | Native build, install, colours, and `hum` workflow verified           | In progress |
+| Project traversal   | Recursive formatting, shebang detection, and safe built-in exclusions | Complete    |
+| Ignore rules        | `.gitignore` support and binary-file safety                           | Planned     |
+| Configuration       | `.wombatrc`, indentation, case, redirect, and operator styles         | Planned     |
+| Distribution        | Atomic writes, backups, Haiku package, metadata, and icon             | Planned     |
+| Release             | Documented, repeatable first public release                           | Planned     |
 
 ## Third-party components
 
